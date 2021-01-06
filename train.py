@@ -108,8 +108,8 @@ print("Total_params: {}".format(pytorch_total_params))
 
 
 # --- Load training data and validation/test data --- #
-train_data_loader = DataLoader(TrainData(crop_size, train_data_dir), batch_size=train_batch_size, shuffle=True, num_workers=24)
-val_data_loader = DataLoader(ValData(val_data_dir), batch_size=val_batch_size, shuffle=False, num_workers=24)
+train_data_loader = DataLoader(TrainData(crop_size, train_data_dir), batch_size=train_batch_size, shuffle=True, num_workers=6)
+val_data_loader = DataLoader(ValData(val_data_dir), batch_size=val_batch_size, shuffle=False, num_workers=6)
 
 
 # --- Previous PSNR and SSIM in testing --- #
