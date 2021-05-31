@@ -7,7 +7,7 @@ import torch.nn as nn
 from torchvision import transforms
 import torchvision.utils as utils
 import argparse
-from skimage.measure import compare_ssim
+from skimage.metrics import structural_similarity
 import matplotlib.pyplot as plt
 
 # --- Parse hyper-parameters  --- #
@@ -40,7 +40,7 @@ def normalize_to_matplotimg(img_tensor, batch_idx, std, mean):
     # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return img
 
-def benchmark_reside():
+def benchmark_ots():
     device_ids = [Id for Id in range(torch.cuda.device_count())]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     transform_op = transforms.Compose([transforms.ToPILImage(),
@@ -49,10 +49,10 @@ def benchmark_reside():
                                        transforms.ToTensor(),
                                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    HAZY_PATH = "E:/Hazy Dataset Benchmark/RESIDE-Unannotated/"
+    HAZY_PATH = "D:/Datasets/OTS_BETA/haze/"
     SAVE_PATH = "results_reside/"
 
-    hazy_list = glob.glob(HAZY_PATH + "*.jpg")
+    hazy_list = glob.glob(HAZY_PATH + "*0.95_0.2.jpg") #specify atmosphere intensity
     for i, (hazy_path) in enumerate(hazy_list):
         with torch.no_grad():
             img_name = hazy_path.split("\\")[1]
@@ -74,8 +74,99 @@ def benchmark_reside():
 
             result_tensor = net(hazy_tensor).cpu()
             utils.save_image(result_tensor, SAVE_PATH + img_name)
+            print("Saved result for: " + img_name)
 
-def benchmark():
+def benchmark_reside():
+    device_ids = [Id for Id in range(torch.cuda.device_count())]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    transform_op = transforms.Compose([transforms.ToPILImage(),
+                                       transforms.Resize((512, 512)),
+                                       transforms.CenterCrop((512, 512)),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    HAZY_PATH = "E:/Hazy Dataset Benchmark/RESIDE-Unannotated/"
+    SAVE_PATH = "results_reside/"
+
+    hazy_list = glob.glob(HAZY_PATH + "*.jpeg")
+    for i, (hazy_path) in enumerate(hazy_list):
+        with torch.no_grad():
+            img_name = hazy_path.split("\\")[1]
+            hazy_img = cv2.imread(hazy_path)
+            hazy_img = cv2.cvtColor(hazy_img, cv2.COLOR_BGR2RGB)
+
+            hazy_tensor = torch.unsqueeze(transform_op(hazy_img), 0).to(device)
+
+            net = GridDehazeNet(height=network_height, width=network_width, num_dense_layer=num_dense_layer,
+                                growth_rate=growth_rate)
+
+            # --- Multi-GPU --- #
+            net = net.to(device)
+            net = nn.DataParallel(net, device_ids=device_ids)
+
+            # --- Load the network weight --- #
+            net.load_state_dict(torch.load('indoor_haze_best_3_6'))
+            net.eval()
+
+            result_tensor = net(hazy_tensor).cpu()
+            utils.save_image(result_tensor, SAVE_PATH + img_name)
+            print("Saved result for: " + img_name)
+
+def benchmark_ihaze():
+    device_ids = [Id for Id in range(torch.cuda.device_count())]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    transform_op = transforms.Compose([transforms.ToPILImage(),
+                                       transforms.Resize((512,512)),
+                                       transforms.CenterCrop((512,512)),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    HAZY_PATH = "E:/Hazy Dataset Benchmark/I-HAZE/hazy/"
+    #HAZY_PATH = "data/test/SOTS/indoor/hazy/"
+    GT_PATH = "E:/Hazy Dataset Benchmark/I-HAZE/GT/"
+    SAVE_PATH = "results/"
+    BENCHMARK_PATH = "results/metrics.txt"
+
+    hazy_list = glob.glob(HAZY_PATH + "*.jpg")
+    gt_list = glob.glob(GT_PATH + "*.jpg")
+    average_SSIM = 0.0
+    for i, (hazy_path, gt_path) in enumerate(zip(hazy_list, gt_list)):
+        with torch.no_grad():
+            img_name = hazy_path.split("\\")[1]
+            hazy_img = cv2.imread(hazy_path)
+            hazy_img = cv2.cvtColor(hazy_img, cv2.COLOR_BGR2RGB)
+            clear_img = cv2.imread(gt_path)
+            clear_img = cv2.cvtColor(hazy_img, cv2.COLOR_BGR2RGB)
+            clear_img = cv2.resize(clear_img, (512,512), interpolation=cv2.INTER_CUBIC)
+
+            hazy_tensor = torch.unsqueeze(transform_op(hazy_img), 0).to(device)
+
+            net = GridDehazeNet(height=network_height, width=network_width, num_dense_layer=num_dense_layer,
+                                growth_rate=growth_rate)
+
+            # --- Multi-GPU --- #
+            net = net.to(device)
+            net = nn.DataParallel(net, device_ids=device_ids)
+
+            # --- Load the network weight --- #
+            net.load_state_dict(torch.load('indoor_haze_best_3_6'))
+            net.eval()
+
+            result_tensor = net(hazy_tensor).cpu()
+            utils.save_image(result_tensor, SAVE_PATH + img_name)
+
+            # measure SSIM
+            result_img = cv2.imread(SAVE_PATH + img_name)
+            result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+
+            SSIM = np.round(structural_similarity(result_img, clear_img, multichannel=True), 4)
+            print("SSIM of " + hazy_path + " : ", SSIM)
+            average_SSIM += SSIM
+
+    average_SSIM = np.round(average_SSIM / len(hazy_list) * 1.0, 4)
+    print("Average SSIM: ", average_SSIM)
+
+def benchmark_ohaze():
     device_ids = [Id for Id in range(torch.cuda.device_count())]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     transform_op = transforms.Compose([transforms.ToPILImage(),
@@ -122,7 +213,7 @@ def benchmark():
             result_img = cv2.imread(SAVE_PATH + img_name)
             result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
 
-            SSIM = np.round(compare_ssim(result_img, clear_img, multichannel=True), 4)
+            SSIM = np.round(structural_similarity(result_img, clear_img, multichannel=True), 4)
             print("SSIM of " + hazy_path + " : ", SSIM)
             average_SSIM += SSIM
 
@@ -131,7 +222,9 @@ def benchmark():
 
 def main():
     #benchmark()
-    benchmark_reside()
+    #benchmark_reside()
+    #benchmark_ots()
+    benchmark_ihaze()
 
 if __name__=="__main__":
     main()
